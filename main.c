@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <omp.h>
 #include <time.h>
+#include <omp.h>
+#include <unistd.h>
 
 double*** threadPartialBofZ;
 double** preX;
@@ -10,26 +11,21 @@ double*** threadPartialOutMM;
 int targetDimension = 3;
 int blockSize = 64;
 
-#include <sys/time.h>
+double currentTimeInSeconds(void)
+{
 
-double elapsedtime() {
-    struct timeval t;
-    struct timezone whocares;
-    double total;
-    double sec, msec;     /* seconds */
-    double usec;          /* microseconds */
+    int flag;
+    clockid_t cid = CLOCK_REALTIME; // CLOCK_MONOTONE might be better
+    struct timespec tp;
+    double timing;
 
-    // gettimeofday(&t, NULL);
-    gettimeofday(&t, &whocares);
+    flag = clock_gettime(cid, &tp);
+    if (flag == 0) timing = tp.tv_sec + 1.0e-9*tp.tv_nsec;
+    else           timing = -17.0;         // If timer failed, return non-valid time
 
-    msec = (double) (t.tv_sec);
-    usec = 1.0e-6*(double) (t.tv_usec);
-    total = msec + usec;
-    if (total < 0)
-        return(-17.0);
-    else
-        return(total);
-}
+    return(timing);
+};
+
 
 void matrixMultiply(double** A, double** B, int aHeight, int bWidth, int comm, int bz, double** C) {
 
@@ -136,32 +132,33 @@ void bcReplica(int threadCount, int iterations, int globalColCount, int rowCount
         }
 
 
-#pragma omp parallel
         {
-            int num_t = omp_get_num_threads();
-            if (num_t != threadCount){
-                printf("Error num_t %d expected %d", num_t, threadCount);
-                return ;
-            }
+            //           int num_t = omp_get_num_threads();
+            //           if (num_t != threadCount){
+            //               printf("Error num_t %d expected %d", num_t, threadCount);
+            //           }
 
             double t1, t2;
-            const int threadIdx = omp_get_thread_num();
-            t1 = omp_get_wtime();
+            //const int threadIdx = omp_get_thread_num();
+            const int threadIdx = 0;
+            t1 = currentTimeInSeconds();
+            //t1 = omp_get_wtime();
             matrixMultiply(threadPartialBofZ[threadIdx], preX, rowCountPerUnit, targetDimension, globalColCount, blockSize, threadPartialOutMM[threadIdx]);
-            t2 = omp_get_wtime() - t1;
-            times[threadIdx] += t2;
+            t2 = currentTimeInSeconds() - t1;
+            //times[threadIdx] += t2;
+            totalTime += t2;
         }
-
+/*
         double max = -1.0;
         for (i = 0; i < threadCount; ++i){
             if (times[i] > max){
                 max = times[i];
             }
         }
-        totalTime += max;
+        totalTime += max;*/
     }
 
-    printf("Size %d x %d Total time (s) for %d iterations %lf", rowCountPerUnit, globalColCount, iterations, totalTime);
+    printf("%d,%d,%d,%d,%lf s\n", rowCountPerUnit, globalColCount, iterations, threadCount, totalTime);
 }
 
 
@@ -170,8 +167,14 @@ int main(int argc, char **args) {
         printf("We need 4 arguments");
         exit(1);
     }
-    const int total_threads = omp_get_max_threads();
-    printf("There are %d total available threads.\n", total_threads); fflush(stdout);
+
+    double t1 = currentTimeInSeconds();
+    sleep(4);
+    double t2 = currentTimeInSeconds();
+    printf("%lf s\n",(t2-t1));
+
+    //const int total_threads = omp_get_max_threads();
+    //printf("There are %d total available threads.\n", total_threads); fflush(stdout);
 
     /* Take these as command line args
      * 1. num threads -- t
@@ -188,11 +191,10 @@ int main(int argc, char **args) {
     r = atoi(args[3]);
     c = atoi(args[4]);
 
-    omp_set_num_threads(t);
+//    omp_set_num_threads(t);
 
 
-    bcReplica(num_t, i, c, r);
+    bcReplica(t, i, c, r);
 
     return 0;
 }
-
