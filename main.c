@@ -5,9 +5,9 @@
 #include <omp.h>
 #include <unistd.h>
 
-double*** threadPartialBofZ;
-double** preX;
-double*** threadPartialOutMM;
+double*threadPartialBofZ;
+double* preX;
+double* threadPartialOutMM;
 int targetDimension = 3;
 int blockSize = 64;
 
@@ -25,8 +25,68 @@ double currentTimeInSeconds(void)
 
     return(timing);
 };
+void matrixMultiply(double* A, double* B, int aHeight, int bWidth, int comm, int bz, double* C, int threadAOffset, int threadCOffset) {
+
+    int aHeightBlocks = aHeight / bz; // size = Height of A
+    int aLastBlockHeight = aHeight - (aHeightBlocks * bz);
+    if (aLastBlockHeight > 0) {
+        aHeightBlocks++;
+    }
+
+    int bWidthBlocks = bWidth / bz; // size = Width of B
+    int bLastBlockWidth = bWidth - (bWidthBlocks * bz);
+    if (bLastBlockWidth > 0) {
+        bWidthBlocks++;
+    }
+
+    int commnBlocks = comm / bz; // size = Width of A or Height of B
+    int commLastBlockWidth = comm - (commnBlocks * bz);
+    if (commLastBlockWidth > 0) {
+        commnBlocks++;
+    }
+
+    int aBlockHeight = bz;
+    int bBlockWidth;
+    int commBlockWidth;
+
+    int ib, jb, kb, i, j, k;
+    int iARowOffset, kBRowOffset, iCRowOffset;
+    for (ib = 0; ib < aHeightBlocks; ib++) {
+        if (aLastBlockHeight > 0 && ib == (aHeightBlocks - 1)) {
+            aBlockHeight = aLastBlockHeight;
+        }
+        bBlockWidth = bz;
+        for (jb = 0; jb < bWidthBlocks; jb++) {
+            if (bLastBlockWidth > 0 && jb == (bWidthBlocks - 1)) {
+                bBlockWidth = bLastBlockWidth;
+            }
+            commBlockWidth = bz;
+            for (kb = 0; kb < commnBlocks; kb++) {
+                if (commLastBlockWidth > 0 && kb == (commnBlocks - 1)) {
+                    commBlockWidth = commLastBlockWidth;
+                }
+
+                for (i = ib * bz; i < (ib * bz) + aBlockHeight; i++) {
+                    iARowOffset = i*comm+threadAOffset;
+                    iCRowOffset = i*bWidth+threadCOffset;
+                    for (j = jb * bz; j < (jb * bz) + bBlockWidth;
+                         j++) {
+                        for (k = kb * bz;
+                             k < (kb * bz) + commBlockWidth; k++) {
+                            kBRowOffset = k*bWidth;
+                            if (A[iARowOffset+k] != 0 && B[kBRowOffset+j] != 0) {
+                                C[iCRowOffset+j] += A[iARowOffset+k] * B[kBRowOffset+j];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 
+/*
 void matrixMultiply(double** A, double** B, int aHeight, int bWidth, int comm, int bz, double** C) {
 
     int aHeightBlocks = aHeight / bz; // size = Height of A
@@ -83,25 +143,19 @@ void matrixMultiply(double** A, double** B, int aHeight, int bWidth, int comm, i
         }
     }
 }
+*/
 
 void bcReplica(int threadCount, int iterations, int globalColCount, int rowCountPerUnit) {
-    preX = (double**) malloc(sizeof(double*)*globalColCount);
+    int pointComponentCountGlobal = globalColCount * targetDimension;
+    int pointComponentCountLocal = rowCountPerUnit * targetDimension;
+    preX = (double*) malloc(sizeof(double) * pointComponentCountGlobal);
     int i;
-    for (i = 0; i < globalColCount; ++i ){
-        preX[i] = (double*) malloc(sizeof(double)*targetDimension);
-    }
 
-    threadPartialBofZ = (double***) malloc(sizeof(double**)*threadCount);
-    threadPartialOutMM = (double***) malloc(sizeof(double**)*threadCount);
+    int pairCountLocal = rowCountPerUnit * globalColCount;
+    threadPartialBofZ = (double*) malloc(sizeof(double) * threadCount * pairCountLocal);
+    threadPartialOutMM = (double*) malloc(sizeof(double*)*threadCount*pointComponentCountLocal);
     int j;
-    for (i = 0; i < threadCount; ++i){
-        threadPartialBofZ[i] = (double**) malloc(sizeof(double*)*rowCountPerUnit);
-        threadPartialOutMM[i] = (double**) malloc(sizeof(double*)*rowCountPerUnit);
-        for (j = 0; j < rowCountPerUnit; ++j){
-            threadPartialBofZ[i][j] = (double*) malloc(sizeof(double)*globalColCount);
-            threadPartialOutMM[i][j] = (double*) malloc(sizeof(double)*targetDimension);
-        }
-    }
+
 
     double totalTime = 0.0;
     double times[threadCount];
@@ -109,26 +163,18 @@ void bcReplica(int threadCount, int iterations, int globalColCount, int rowCount
     int itr;
     int k;
     for (itr = 0; itr < iterations; ++itr){
-        for (i = 0; i < globalColCount; ++i){
-            for (j = 0; j < targetDimension; ++j){
-                preX[i][j] = (double)rand() / (double)RAND_MAX;
-            }
+        for (i = 0; i < pointComponentCountGlobal; ++i){
+            preX[i] = (double)rand() / (double)RAND_MAX;
         }
 
-        for (k = 0; k < threadCount; ++k){
-            for (i = 0; i < rowCountPerUnit; ++i){
-                for (j = 0; j < globalColCount; ++j){
-                    threadPartialBofZ[k][i][j] = (double)rand() / (double)RAND_MAX;
-                }
-            }
+        int pairCountAllThreads = threadCount*pairCountLocal;
+        for (k = 0; k < pairCountAllThreads; ++k){
+            threadPartialBofZ[k] = (double)rand() / (double)RAND_MAX;
         }
 
-        for (k = 0; k < threadCount; ++k){
-            for (i = 0; i < rowCountPerUnit; ++i){
-                for (j = 0; j < targetDimension; ++j){
-                    threadPartialOutMM[k][i][j] = (double)0.0;
-                }
-            }
+        int pointComponentCountAllThreads = threadCount*pointComponentCountLocal;
+        for (k = 0; k < pointComponentCountAllThreads; ++k){
+            threadPartialOutMM[k] = (double)0.0;
         }
 
 
@@ -143,7 +189,7 @@ void bcReplica(int threadCount, int iterations, int globalColCount, int rowCount
             const int threadIdx = 0;
             t1 = currentTimeInSeconds();
             //t1 = omp_get_wtime();
-            matrixMultiply(threadPartialBofZ[threadIdx], preX, rowCountPerUnit, targetDimension, globalColCount, blockSize, threadPartialOutMM[threadIdx]);
+            matrixMultiply(threadPartialBofZ, preX, rowCountPerUnit, targetDimension, globalColCount, blockSize, threadPartialOutMM, threadIdx*pairCountLocal, threadIdx*pointComponentCountLocal);
             t2 = currentTimeInSeconds() - t1;
             //times[threadIdx] += t2;
             totalTime += t2;
