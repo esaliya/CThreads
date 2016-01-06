@@ -206,8 +206,8 @@ void MMMpi(int threadCount, int iterations, int globalColCount, int nodesPerNode
 
 int main(int argc, char **args) {
     MPI_Init(&argc, &args);
-    if (argc < 5) {
-        printf("We need 4 arguments");
+    if (argc < 4) {
+        printf("We need 3 arguments");
         exit(1);
     }
 
