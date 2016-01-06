@@ -8,6 +8,8 @@
 double*threadPartialBofZ;
 double* preX;
 double* threadPartialOutMM;
+int* recvCounts;
+int* displas;
 int targetDimension = 3;
 int blockSize = 64;
 
@@ -159,6 +161,19 @@ void MMMpi(int threadCount, int iterations, int globalColCount, int nodesPerNode
     int pairCountLocal = rowCountPerUnit * globalColCount;
     threadPartialBofZ = (double*) malloc(sizeof(double) * threadCount * pairCountLocal);
     threadPartialOutMM = (double*) malloc(sizeof(double*)*threadCount*pointComponentCountLocal);
+
+    recvCounts = (int*) malloc(sizeof(int)*worldProcCount);
+    displas = (int*) malloc(sizeof(int)*worldProcCount);
+
+    for (i = 0; i < worldProcCount; ++i){
+        recvCounts[i] = threadCount*pointComponentCountLocal;
+        if (i == 0){
+            displas[i] = 0;
+        } else {
+            displas[i] = displas[i-1]+recvCounts[i];
+        }
+    }
+
     int j;
 
 
@@ -197,7 +212,7 @@ void MMMpi(int threadCount, int iterations, int globalColCount, int nodesPerNode
 
             MPI_Barrier(MPI_COMM_WORLD);
             t1 = currentTimeInSeconds();
-            MPI_Allgather(threadPartialOutMM, pointComponentCountLocal, MPI_DOUBLE, preX, pointComponentCountLocal, MPI_DOUBLE, MPI_COMM_WORLD);
+            MPI_Allgatherv(threadPartialOutMM, pointComponentCountLocal, MPI_DOUBLE, preX, recvCounts, displas, MPI_DOUBLE, MPI_COMM_WORLD);
             commTime = currentTimeInSeconds() - t1;
             time = currentTimeInSeconds() - t0;
 
