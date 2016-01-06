@@ -196,7 +196,10 @@ void MMMpi(int threadCount, int iterations, int globalColCount, int nodesPerNode
             MPI_Barrier(MPI_COMM_WORLD);
             t1 = currentTimeInSeconds();
 
-            printf("RowCount %d ColCount %d, itr %d time %lf compute %lf comm %lf\n", rowCountPerUnit, globalColCount, itr, time*1000, compTime*1000, commTime*1000);
+            if (worldProcRank == 0) {
+                printf("RowCount %d ColCount %d, itr %d time %lf compute %lf comm %lf\n", rowCountPerUnit,
+                       globalColCount, itr, time * 1000, compTime * 1000, commTime * 1000);
+            }
         }
     }
 
