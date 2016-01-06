@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
-#include "mpi.h"
+#include <omp.h>
 #include <unistd.h>
 
 double*threadPartialBofZ;
@@ -145,12 +145,7 @@ void matrixMultiply(double** A, double** B, int aHeight, int bWidth, int comm, i
 }
 */
 
-void MMMpi(int threadCount, int iterations, int globalColCount, int nodesPerNode) {
-
-    int worldProcRank, worldProcCount;
-    MPI_Comm_rank(MPI_COMM_WORLD, &worldProcRank);
-    MPI_Comm_size(MPI_COMM_WORLD, &worldProcCount);
-    int rowCountPerUnit = globalColCount / worldProcCount;
+void bcReplica(int threadCount, int iterations, int globalColCount, int rowCountPerUnit) {
     int pointComponentCountGlobal = globalColCount * targetDimension;
     int pointComponentCountLocal = rowCountPerUnit * targetDimension;
     preX = (double*) malloc(sizeof(double) * pointComponentCountGlobal);
@@ -162,9 +157,8 @@ void MMMpi(int threadCount, int iterations, int globalColCount, int nodesPerNode
     int j;
 
 
-    double time = 0.0;
-    double compTime = 0.0;
-    double commTime = 0.0;
+    double totalTime = 0.0;
+    double times[threadCount];
 
     int itr;
     int k;
@@ -184,28 +178,37 @@ void MMMpi(int threadCount, int iterations, int globalColCount, int nodesPerNode
         }
 
 
-        if (threadCount == 1) {
-            double t1;
+        {
+            //           int num_t = omp_get_num_threads();
+            //           if (num_t != threadCount){
+            //               printf("Error num_t %d expected %d", num_t, threadCount);
+            //           }
+
+            double t1, t2;
+            //const int threadIdx = omp_get_thread_num();
             const int threadIdx = 0;
-            MPI_Barrier(MPI_COMM_WORLD);
             t1 = currentTimeInSeconds();
-            matrixMultiply(threadPartialBofZ, preX, rowCountPerUnit, targetDimension, globalColCount, blockSize,
-                           threadPartialOutMM, threadIdx * pairCountLocal, threadIdx * pointComponentCountLocal);
-            time = currentTimeInSeconds() - t1;
-
-            MPI_Barrier(MPI_COMM_WORLD);
-            t1 = currentTimeInSeconds();
-
-            printf("RowCount %d ColCount %d, itr %d time %lf compute %lf comm %lf\n", rowCountPerUnit, globalColCount, itr, time*1000, compTime*1000, commTime*1000);
+            //t1 = omp_get_wtime();
+            matrixMultiply(threadPartialBofZ, preX, rowCountPerUnit, targetDimension, globalColCount, blockSize, threadPartialOutMM, threadIdx*pairCountLocal, threadIdx*pointComponentCountLocal);
+            t2 = currentTimeInSeconds() - t1;
+            //times[threadIdx] += t2;
+            totalTime += t2;
         }
+/*
+        double max = -1.0;
+        for (i = 0; i < threadCount; ++i){
+            if (times[i] > max){
+                max = times[i];
+            }
+        }
+        totalTime += max;*/
     }
 
-
+    printf("%d,%d,%d,%d,%lf s\n", rowCountPerUnit, globalColCount, iterations, threadCount, totalTime);
 }
 
 
-int main(int argc, char **args) {
-    MPI_Init(&argc, &args);
+int mainSimple(int argc, char **args) {
     if (argc < 5) {
         printf("We need 4 arguments");
         exit(1);
@@ -216,21 +219,28 @@ int main(int argc, char **args) {
     double t2 = currentTimeInSeconds();
     printf("%lf s\n",(t2-t1));
 
+    //const int total_threads = omp_get_max_threads();
+    //printf("There are %d total available threads.\n", total_threads); fflush(stdout);
+
     /* Take these as command line args
-     * 1. iterations -- i
-     * 2. colcount -- c
-     * 3. nodes per node  -- n*/
-    int t = 1;
+     * 1. num threads -- t
+     * 2. iterations -- i
+     * 3. rowcount -- r
+     * 4. colcount  -- c*/
+    int t = 0;
     int i = 0;
     int c = 0;
-    int n = 0;
+    int r = 0;
 
-    i = atoi(args[1]);
-    c = atoi(args[2]);
-    n = atoi(args[3]);
+    t = atoi(args[1]);
+    i = atoi(args[2]);
+    r = atoi(args[3]);
+    c = atoi(args[4]);
 
-    MMMpi(t, i, c, n);
-    MPI_Finalize();
+//    omp_set_num_threads(t);
+
+
+    bcReplica(t, i, c, r);
 
     return 0;
 }
