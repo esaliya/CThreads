@@ -217,7 +217,6 @@ int main(int argc, char **args) {
     double t1 = currentTimeInSeconds();
     sleep(4);
     double t2 = currentTimeInSeconds();
-    printf("%lf s\n",(t2-t1));
 
     /* Take these as command line args
      * 1. iterations -- i
