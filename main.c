@@ -185,16 +185,21 @@ void MMMpi(int threadCount, int iterations, int globalColCount, int nodesPerNode
 
 
         if (threadCount == 1) {
+            double t0;
             double t1;
             const int threadIdx = 0;
             MPI_Barrier(MPI_COMM_WORLD);
+            t0 = currentTimeInSeconds();
             t1 = currentTimeInSeconds();
             matrixMultiply(threadPartialBofZ, preX, rowCountPerUnit, targetDimension, globalColCount, blockSize,
                            threadPartialOutMM, threadIdx * pairCountLocal, threadIdx * pointComponentCountLocal);
-            time = currentTimeInSeconds() - t1;
+            compTime = currentTimeInSeconds() - t1;
 
             MPI_Barrier(MPI_COMM_WORLD);
             t1 = currentTimeInSeconds();
+            MPI_Allgather(threadPartialOutMM, pointComponentCountLocal, MPI_DOUBLE, preX, pointComponentCountLocal, MPI_DOUBLE, MPI_COMM_WORLD);
+            commTime = currentTimeInSeconds() - t1;
+            time = currentTimeInSeconds() - t0;
 
             if (worldProcRank == 0) {
                 printf("RowCount %d ColCount %d, itr %d time %lf compute %lf comm %lf\n", rowCountPerUnit,
